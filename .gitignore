@@ -1,0 +1,39 @@
+# Directories to exclude
+input/
+output/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment and credentials
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Testing
+.coverage
+htmlcov/
+
+# Local development
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Generated files
+test_output.mp3
+chunk_*.mp3
+*.docx
+*.mp3
+
+# Logs
+*.log
