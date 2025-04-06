@@ -5,6 +5,8 @@ A Python application that converts text documents (DOCX, EPUB, Markdown) into au
 ## Features
 
 - Supports multiple document formats (DOCX, EPUB, Markdown)
+- Automatically detects and segments audiobooks by chapters
+- Generates separate audio files for each chapter with end-of-chapter indicators
 - Secure API key management using system credential store
 - Automatic chunking of large texts
 - Progress tracking during audio generation
@@ -50,18 +52,23 @@ poetry run python -m src.main input/your-book.epub
 
 # Convert a Markdown file to audiobook
 poetry run python -m src.main input/your-text.md
+
+# Create test documents with chapter structure
+poetry run python scripts/create_test_docx.py
 ```
 
-The generated audiobook will be saved in the `output` directory.
+The generated audiobook files will be saved in:
+- Individual chapter files: `output/chapters/` directory
+- Combined audiobook file: `output` directory
 
 ## Project Structure
 
 ```
 ├── src/                  # Source code
-│   ├── audio_generator.py # Audio generation logic
+│   ├── audio_generator.py # Audio generation logic with chapter support
 │   ├── config.py         # Configuration and API key management
 │   ├── main.py           # Main application entry point
-│   └── text_processor.py # Document parsing and text extraction
+│   └── text_processor.py # Document parsing with chapter detection
 ├── scripts/              # Utility scripts
 │   ├── check_credentials.py # Verify API key setup
 │   ├── create_test_docx.py  # Create test document
@@ -72,6 +79,16 @@ The generated audiobook will be saved in the `output` directory.
 ├── pyproject.toml       # Poetry configuration
 └── poetry.lock          # Dependency lock file
 ```
+
+## Chapter Detection
+
+The audiobook generator automatically detects chapters based on the input file format:
+
+- **DOCX files**: Chapters are detected based on heading styles (Heading 1, Heading 2)
+- **EPUB files**: Chapters are detected from the table of contents or HTML structure
+- **Markdown files**: Chapters are detected based on heading markers (# or ##) or chapter text patterns
+
+Each chapter is processed separately and saved as an individual audio file. A chapter indicator ("End of Chapter X") is added at the end of each audio file to help listeners know when a chapter has ended.
 
 ## Security
 
