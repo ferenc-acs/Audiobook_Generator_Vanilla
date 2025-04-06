@@ -24,7 +24,8 @@ def extract_chapters_from_docx(file_path: str) -> List[Dict[str, str]]:
         
         for para in doc.paragraphs:
             # Check if this paragraph is a heading (potential chapter marker)
-            if para.style.name.startswith('Heading') and para.text.strip():
+            # Safely check if style exists before accessing its name
+            if para.style and para.style.name.startswith('Heading') and para.text.strip():
                 # If we have content in the current chapter, save it
                 if current_chapter["content"]:
                     current_chapter["content"] = '\n'.join(current_chapter["content"])

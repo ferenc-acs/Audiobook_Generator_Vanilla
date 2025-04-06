@@ -11,14 +11,15 @@ from src.config import Config
 logger = logging.getLogger(__name__)
 
 class AudioGenerator:
-    def __init__(self, output_dir: str = "output", input_file: Optional[str] = None):
+    def __init__(self, output_dir: str = "output", input_file: Optional[str] = None, voice: str = "ash"):
         Config.validate_key()
         self.client = OpenAI(api_key=Config.get_openai_key())
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir = Path(output_dir) # Use the provided output directory
+        self.output_dir.mkdir(parents=True, exist_ok=True) # Ensure it exists, including parents
         self.input_file = input_file
+        self.voice = voice # Store the selected voice
         
-        # Create chapters subdirectory for individual chapter files
+        # Create chapters subdirectory within the specified output directory
         self.chapters_dir = self.output_dir / "chapters"
         self.chapters_dir.mkdir(exist_ok=True)
 
@@ -28,12 +29,22 @@ class AudioGenerator:
     def _synthesize_chunk(self, text: str, index: int, chapter_dir: Optional[Path] = None) -> Optional[Path]:
         try:
             response = self.client.audio.speech.create(
-                model="tts-1",
-                voice="nova",
+                model="gpt-4o-mini-tts",
+                voice=self.voice, # Use the stored voice
                 input=text,
-                instructions="Narrate like a professional audiobook speaker with clear articulation, proper pacing, and appropriate dramatic emphasis. Ensure the tone is engaging, the pronunciation is crisp, and the intonation matches the emotional context of the text. Use pauses effectively to enhance comprehension and maintain listener interest."
+                instructions="""Narrate in the style of a professional audiobook performer.
+                Maintain excellent clarity and articulation throughout.
+                Adopt a pace that is natural and conversational, but adaptable – slightly slower for emphasis or complex sentences,
+                slightly faster for moments of excitement, always prioritizing intelligibility.
+                Use moderate pitch and volume variation to keep the tone engaging and reflective of the
+                text's mood (e.g., serious, lighthearted, informative).
+                Intonation should naturally follow sentence structure (rising for questions, falling for statements) and
+                subtly underscore the emotional context detected in the text.
+                Place brief pauses at commas and natural clause breaks, with slightly longer pauses at sentence and paragraph endings to
+                aid comprehension and flow.
+                Ensure pronunciation is consistently accurate and crisp."""
             )
-            # Use chapter directory if provided, otherwise use the output directory
+            # Use chapter directory if provided, otherwise use the specified output directory
             target_dir = chapter_dir if chapter_dir else self.output_dir
             output_path = target_dir / f"chunk_{index}.mp3"
             response.stream_to_file(str(output_path))

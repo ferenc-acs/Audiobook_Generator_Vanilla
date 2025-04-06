@@ -44,22 +44,34 @@ A Python application that converts text documents (DOCX, EPUB, Markdown) into au
 ## Usage
 
 ```bash
-# Convert a DOCX file to audiobook
+# Convert a DOCX file with default settings
 poetry run python -m src.main input/your-document.docx
 
-# Convert an EPUB file to audiobook
-poetry run python -m src.main input/your-book.epub
+# Convert an EPUB file, specify output directory and voice
+poetry run python -m src.main input/your-book.epub -o custom_output --voice shimmer
 
-# Convert a Markdown file to audiobook
-poetry run python -m src.main input/your-text.md
+# Convert a Markdown file with verbose logging
+poetry run python -m src.main input/your-text.md -v
+
+# Perform a dry run to see detected chapters (no audio generated)
+poetry run python -m src.main input/your-document.docx --dry-run
 
 # Create test documents with chapter structure
 poetry run python scripts/create_test_docx.py
 ```
 
+### Command-Line Options
+
+- `input_file`: Path to the input document (DOCX, EPUB, Markdown).
+- `-o`, `--output-dir`: Directory to save generated audio files (default: `output`).
+- `--voice`: TTS voice model (options: alloy, echo, fable, onyx, nova, shimmer; default: `nova`).
+- `--dry-run`: Detect chapters and list them without generating audio.
+- `-v`, `--verbose`: Enable detailed debug logging.
+- `-q`, `--quiet`: Suppress informational messages, show only warnings/errors.
+
 The generated audiobook files will be saved in:
-- Individual chapter files: `output/chapters/` directory
-- Combined audiobook file: `output` directory
+- Individual chapter files: `<output_dir>/chapters/` directory
+- Combined audiobook file: `<output_dir>` directory
 
 ## Project Structure
 
