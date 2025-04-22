@@ -1,0 +1,29 @@
+**Work Summary Report**
+
+**Date:** 2024-08-12
+
+**Context:**
+Intermittent connection issues prompted the need for this summary to capture the current state of development, allowing work to be resumed effectively.
+
+**Focus Area:**
+EPUB Chapter Extraction in `src/text_processor.py`.
+
+**Problem:**
+The function `extract_chapters_from_epub` in <mcfile name="text_processor.py" path="src/text_processor.py"></mcfile> relies primarily on the EPUB's Table of Contents (TOC) to identify chapters. However, when the TOC is missing, malformed, or unavailable (e.g., due to `ebooklib` version differences), the fallback mechanism needs to reliably segment the book into chapters based on the spine items (reading order).
+
+**Current Status of Fallback Logic (Spine Processing):**
+- The fallback iterates through items listed in the EPUB's `spine`.
+- For each HTML/XHTML item, it extracts the content using `BeautifulSoup`.
+- **Title Identification:**
+    - It attempts to find an `<h1>`, `<h2>`, or `<h3>` tag within the item's content to use as the chapter title.
+    - If no suitable heading is found, it falls back to using a cleaned-up version of the item's filename or a generic "Chapter X" title.
+- **Content Extraction:**
+    - `BeautifulSoup`'s `get_text('\n')` is used to extract text content, preserving line breaks initially.
+    - The extracted text is then `strip()`ped to remove leading/trailing whitespace before being added as chapter content.
+- **Issue Addressed Recently:** Ensured that `soup.get_text('\n')` is used to preserve internal paragraph breaks, followed by `strip()` on the final `content` string to avoid adding empty chapters or chapters with only whitespace.
+
+**Next Steps / Potential Issues:**
+1.  **Testing:** Further testing is needed with EPUB files that are known to lack a usable TOC to verify the robustness of the spine fallback logic.
+2.  **Title Accuracy:** The fallback title generation might still produce non-ideal titles in some cases. Refinements might be needed.
+3.  **Content Grouping:** The current spine fallback treats each HTML file in the spine as a potential chapter. In some EPUBs, a single logical chapter might span multiple HTML files. This scenario is not currently handled; the fallback might create too many small chapters.
+4.  **Markdown/Docx:** While the focus has been on EPUB, ensure that recent changes haven't negatively impacted DOCX or Markdown chapter

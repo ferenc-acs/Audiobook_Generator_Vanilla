@@ -56,14 +56,41 @@ def extract_chapters_from_docx(file_path: str) -> List[Dict[str, str]]:
         raise
 
 def extract_text_from_epub(file_path: str) -> str:
+    """Extracts all text content from an EPUB file, using BeautifulSoup for robustness."""
     try:
         book = epub.read_epub(file_path)
-        text = []
+        all_text_content = []
+        # Iterate through items in spine order for better concatenation
+        spine_ids = {item_id for item_id, _ in book.spine}
+        items_to_process = []
+        processed_ids = set()
+
+        # Prioritize spine items
+        for item_id, _ in book.spine:
+            item = book.get_item_with_id(item_id)
+            if item and item.media_type and item.media_type.lower() in ['application/xhtml+xml', 'text/html']:
+                items_to_process.append(item)
+                processed_ids.add(item.id)
+
+        # Add non-spine items (like title pages, etc.) that might have been missed
         for item in book.get_items():
-            # Check media type instead of using ITEM_DOCUMENT constant
-            if item.media_type and item.media_type.lower() in ['application/xhtml+xml', 'text/html']:
-                text.append(item.get_content().decode('utf-8'))
-        return '\n\n'.join(text)
+            if item.id not in processed_ids and item.media_type and item.media_type.lower() in ['application/xhtml+xml', 'text/html']:
+                items_to_process.append(item)
+                logger.debug(f"Adding non-spine item to text extraction: {item.get_name()}")
+
+        for item in items_to_process:
+            try:
+                content_bytes = item.get_content()
+                soup = BeautifulSoup(content_bytes, 'html.parser')
+                # Extract text without initial stripping
+                text_content = soup.get_text('\n') 
+                stripped_content = text_content.strip()
+                if stripped_content:
+                    all_text_content.append(stripped_content)
+            except Exception as item_e:
+                logger.warning(f"Could not process item {item.get_name()} in EPUB for text extraction: {item_e}")
+                
+        return '\n\n'.join(all_text_content)
     except Exception as e:
         logger.error(f"EPUB extraction error: {str(e)}")
         raise
@@ -75,77 +102,179 @@ def extract_chapters_from_epub(file_path: str) -> List[Dict[str, str]]:
         chapters = []
         toc = []
         
-        # Try to extract table of contents if method is available
-        # Some versions of ebooklib may not have this method
+        # Extract table of contents manually since get_toc method isn't consistently available
         try:
-            if hasattr(book, 'get_toc'):
-                toc = book.get_toc()
-            else:
-                # If get_toc isn't available, we'll rely on other methods
-                logger.info("get_toc method not available in this ebooklib version")
+            # Look for the NCX file which contains the table of contents
+            ncx_item = None
+            for item in book.get_items():
+                if item.get_name().endswith('.ncx'):
+                    ncx_item = item
+                    break
+            
+            if ncx_item:
+                from lxml import etree
+                ns = {'ncx': 'http://www.daisy.org/z3986/2005/ncx/'}
+                tree = etree.fromstring(ncx_item.get_content())
+                
+                # Extract TOC entries from the NCX file
+                nav_points = tree.xpath('//ncx:navPoint', namespaces=ns)
                 toc = []
+                
+                for nav_point in nav_points:
+                    # Get the title
+                    title_elem = nav_point.find('.//ncx:text', namespaces=ns)
+                    title = title_elem.text if title_elem is not None else 'Untitled'
+                    
+                    # Get the content source
+                    content_elem = nav_point.find('.//ncx:content', namespaces=ns)
+                    if content_elem is not None and 'src' in content_elem.attrib:
+                        href = content_elem.attrib['src']
+                        # Split off any fragment identifier
+                        href = href.split('#')[0]
+                        toc.append((title, href, []))
+                
+                logger.info(f"Extracted {len(toc)} entries from EPUB NCX table of contents")
+            else:
+                # If NCX not found, try to find the navigation document (EPUB3)
+                nav_item = None
+                for item in book.get_items():
+                    if item.get_properties() and 'nav' in item.get_properties():
+                        nav_item = item
+                        break
+                
+                if nav_item:
+                    soup = BeautifulSoup(nav_item.get_content(), 'html.parser')
+                    toc = []
+                    nav_element = soup.find('nav', attrs={'epub:type': 'toc'}) or soup.find('nav')
+                    
+                    if nav_element:
+                        for link in nav_element.find_all('a'):
+                            if 'href' in link.attrs:
+                                href = link.attrs['href']
+                                # Split off any fragment identifier
+                                href = href.split('#')[0]
+                                toc.append((link.get_text().strip(), href, []))
+                    
+                    logger.info(f"Extracted {len(toc)} entries from EPUB3 navigation document")
+                else:
+                    logger.info("Could not find TOC in NCX or navigation document")
+                    toc = []
         except Exception as e:
             logger.warning(f"Failed to extract EPUB table of contents: {str(e)}")
+            toc = []
         
-        # If we have a table of contents with chapters
+        item_map = {}
+        for item in book.get_items():
+            if item.media_type and item.media_type.lower() in ['application/xhtml+xml', 'text/html']:
+                item_map[item.get_name()] = item
+
+        # Prioritize TOC for chapter structure
         if toc:
-            chapter_items = {}
-            
-            # Map all document items by href
-            for item in book.get_items():
-                # Check media type instead of using ITEM_DOCUMENT constant
-                if item.media_type and item.media_type.lower() in ['application/xhtml+xml', 'text/html']:
-                    chapter_items[item.get_name()] = item
-            
-            # Process each TOC entry as a chapter
+            logger.info(f"Using EPUB Table of Contents ({len(toc)} entries).")
+            processed_items = set()
             for title, href, _ in toc:
-                href_parts = href.split('#')
-                item_href = href_parts[0]
+                # Split href in case it includes fragment identifiers (#section)
+                href_base = href.split('#')[0]
                 
-                if item_href in chapter_items:
-                    content = chapter_items[item_href].get_content().decode('utf-8')
-                    # Clean HTML content
-                    soup = BeautifulSoup(content, 'html.parser')
+                if href_base in item_map:
+                    item = item_map[href_base]
+                    if href_base in processed_items:
+                        logger.debug(f"Skipping duplicate TOC entry processing for: {href_base}")
+                        continue # Avoid processing the same item multiple times if TOC is structured oddly
+                    
+                    # Decode content and clean HTML
+                    content_bytes = item.get_content()
+                    soup = BeautifulSoup(content_bytes, 'html.parser')
                     text_content = soup.get_text('\n', strip=True)
                     
-                    chapters.append({
-                        "title": title,
-                        "content": text_content
-                    })
-        
-        # If no chapters were found through TOC, try to identify chapters by content
+                    # Check for common non-chapter titles like 'Contents', 'Title Page', 'Copyright'
+                    lower_title = title.lower()
+                    if any(keyword in lower_title for keyword in ['contents', 'title page', 'copyright', 'introduction', 'preface', 'dedication']):
+                        logger.info(f"Skipping non-chapter TOC entry: {title} ({href_base})")
+                        continue
+
+                    # Check if content seems substantial enough to be a chapter
+                    if len(text_content) > 100: # Arbitrary threshold to filter out very short/empty pages
+                        chapters.append({
+                            "title": title.strip(),
+                            "content": text_content
+                        })
+                        processed_items.add(href_base)
+                    else:
+                        logger.debug(f"Skipping potentially empty/short TOC entry: {title} ({href_base}) - Length: {len(text_content)}")
+                else:
+                    logger.warning(f"TOC entry href not found in EPUB items: {href} (Base: {href_base})")
+
+        # Fallback: Process HTML items in spine order if TOC was missing or yielded no chapters
         if not chapters:
-            # Process each HTML document as a potential chapter
-            sorted_items = sorted(
-                [item for item in book.get_items() if item.media_type and item.media_type.lower() in ['application/xhtml+xml', 'text/html']],
-                key=lambda x: x.get_name()
-            )
-            
-            for i, item in enumerate(sorted_items):
-                content = item.get_content().decode('utf-8')
-                soup = BeautifulSoup(content, 'html.parser')
-                
-                # Try to find chapter title in the content
-                title_elem = soup.find(['h1', 'h2', 'h3', 'header'])
-                title = f"Chapter {i+1}"
-                if title_elem and title_elem.get_text().strip():
-                    title = title_elem.get_text().strip()
-                
-                text_content = soup.get_text('\n', strip=True)
-                if text_content.strip():
-                    chapters.append({
-                        "title": title,
-                        "content": text_content
-                    })
+            logger.warning("TOC empty or unusable. Falling back to spine item processing.")
+            # Use book.spine for reading order
+            spine_items = book.spine
+            if not spine_items:
+                 logger.warning("EPUB spine is empty. Cannot determine reading order for fallback.")
+            else:
+                logger.info(f"Processing {len(spine_items)} items from EPUB spine.")
+                # Create a map of ID -> item for quick lookup
+                id_map = {item.id: item for item in book.get_items() if item.media_type and item.media_type.lower() in ['application/xhtml+xml', 'text/html']}
+
+                for i, (item_id, _) in enumerate(spine_items):
+                    if item_id in id_map:
+                        item = id_map[item_id]
+                        item_name = item.get_name() # Get name for logging/fallback title
+                        content_bytes = item.get_content()
+                        soup = BeautifulSoup(content_bytes, 'html.parser')
+                        # Get text without stripping whitespace initially
+                        text_content = soup.get_text('\n') 
+
+                        # Try to find a heading for the title, otherwise use item name or chapter number
+                        title_elem = soup.find(['h1', 'h2', 'h3'])
+                        title = f"Chapter {i+1}" # Default fallback title
+                        if title_elem and title_elem.get_text().strip():
+                            potential_title = title_elem.get_text().strip()
+                            # Use heading as title if it's reasonably short
+                            if len(potential_title) < 100:
+                               title = potential_title
+                            else:
+                               logger.debug(f"Using default title; Found heading seems too long: {potential_title}")
+                        elif item_name:
+                           # Use item name if useful, clean it up
+                           name_part = item_name.split('/')[-1].split('.')[0].replace('_', ' ').title()
+                           if len(name_part) > 3 and len(name_part) < 50: # Avoid generic names like 'page1'
+                               title = name_part
+
+                        logger.debug(f"Spine fallback processing item: {item_name} (ID: {item_id}) -> Title: '{title}', Raw text length: {len(text_content)}")
+
+                        # Add chapter if content exists (removed length check)
+                        stripped_text = text_content.strip()
+                        if stripped_text:
+                           chapters.append({
+                               "title": title,
+                               "content": stripped_text # Use stripped text
+                           })
+                        else:
+                           logger.debug(f"Skipping spine item (empty after strip): {title} (ID: {item_id})")
+                    else:
+                        logger.warning(f"Item ID '{item_id}' from spine not found in book items map.")
         
-        # If still no chapters, treat the entire book as one chapter
+        # Final fallback: If no chapters were identified, treat the entire book text as one chapter.
         if not chapters:
-            all_text = extract_text_from_epub(file_path)
-            chapters.append({
-                "title": "Complete Book",
-                "content": all_text
-            })
-            
+            logger.warning("No chapters identified through TOC or spine fallback. Attempting to treat entire EPUB as one chapter.")
+            try:
+                all_text = extract_text_from_epub(file_path) # Re-extract all text cleanly
+                logger.info(f"Final fallback: Extracted total text length: {len(all_text)}")
+                stripped_all_text = all_text.strip()
+                if stripped_all_text:
+                    logger.info("Final fallback: Adding 'Complete Book' chapter.")
+                    chapters.append({
+                        "title": "Complete Book",
+                        "content": stripped_all_text
+                    })
+                else:
+                    logger.warning("Final fallback: Extracted text was empty after stripping. No chapters added.")
+            except Exception as final_fallback_e:
+                logger.error(f"Final fallback failed during text extraction: {final_fallback_e}")
+        
+        # Return the extracted chapters
         return chapters
     except Exception as e:
         logger.error(f"EPUB chapter extraction error: {str(e)}")

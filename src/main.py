@@ -1,113 +1,111 @@
 import argparse
 import logging
 from pathlib import Path
-from src.text_processor import check_supported_format, process_text_file, extract_chapters
-from src.audio_generator import AudioGenerator
+from .text_processor import extract_chapters
+from .audio_generator import AudioGenerator
+from .config import Config
 
-# Configure root logger initially to capture early messages
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
+def setup_logging(verbose: bool, quiet: bool):
+    log_level = logging.INFO
+    if verbose:
+        log_level = logging.DEBUG
+    elif quiet:
+        log_level = logging.WARNING
+        
+    logging.basicConfig(level=log_level, 
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Suppress overly verbose logs from libraries if not in verbose mode
+    if not verbose:
+        logging.getLogger("openai").setLevel(logging.WARNING)
+        logging.getLogger("keyring").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 def main():
-    parser = argparse.ArgumentParser(description='Convert DOCX, EPUB, or Markdown files to audiobook')
-    parser.add_argument('input_file', type=str, help='Path to input document')
-    parser.add_argument(
-        '-o', '--output-dir',
-        type=str,
-        default="output",
-        help='Directory to save the generated audiobook files (default: output)'
-    )
-    parser.add_argument(
-        '--voice',
-        type=str,
-        default="ash",
-        choices=["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"],
-        help='Voice model to use for TTS (default: nova)'
-    )
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show detected chapters without generating audio'
-    )
-    verbosity_group = parser.add_mutually_exclusive_group()
-    verbosity_group.add_argument(
-        '-v', '--verbose',
-        action='store_const',
-        dest='loglevel',
-        const=logging.DEBUG,
-        help='Enable detailed debug logging'
-    )
-    verbosity_group.add_argument(
-        '-q', '--quiet',
-        action='store_const',
-        dest='loglevel',
-        const=logging.WARNING,
-        help='Suppress informational messages, only show warnings and errors'
-    )
-
+    parser = argparse.ArgumentParser(description="Convert text documents to audiobooks.")
+    parser.add_argument("input_file", help="Path to the input document (DOCX, EPUB, Markdown).")
+    parser.add_argument("-o", "--output-dir", default="output", help="Directory to save generated audio files (default: output).")
+    parser.add_argument("--voice", default="nova", choices=["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"], help="TTS voice model (default: nova).")
+    parser.add_argument("--dry-run", action="store_true", help="Detect chapters and list them without generating audio.")
+    parser.add_argument("--debug-synthesis", action="store_true", help="Log synthesis input text and instructions to a debug file. If used with --dry-run, only logs info without API calls.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable detailed debug logging.")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress informational messages, show only warnings/errors.")
+    
     args = parser.parse_args()
-
-    # Reconfigure logging based on verbosity arguments
-    log_level = args.loglevel if args.loglevel else logging.INFO
-    logging.basicConfig(level=log_level, format='%(levelname)s: %(message)s', force=True)
+    
+    setup_logging(args.verbose, args.quiet)
+    logger = logging.getLogger(__name__)
+    
+    input_path = Path(args.input_file)
+    if not input_path.exists():
+        logger.error(f"Input file not found: {input_path}")
+        return
 
     try:
-        input_path = Path(args.input_file)
-        output_path = Path(args.output_dir)
-        output_path.mkdir(parents=True, exist_ok=True) # Ensure output dir exists
+        # Validate API key early
+        Config.validate_key()
+        logger.info(f"Using voice: {args.voice}")
+        if args.debug_synthesis:
+            logger.info("Synthesis debug logging enabled.")
 
-        if not input_path.exists():
-            raise FileNotFoundError(f"Input file {input_path} not found")
-
-        if not check_supported_format(str(input_path)):
-            raise ValueError("Unsupported file format. Only DOCX, MARKDOWN and EPUB are supported")
-
-        logger.info(f"Processing file: {input_path}")
-        logger.debug(f"Output directory: {output_path}")
-        logger.debug(f"Selected voice: {args.voice}")
-        
-        # --- Extract Chapters ---
-        logger.info("Extracting chapters...")
+        # Extract chapters directly using the function
         chapters = extract_chapters(str(input_path))
-        logger.info(f"Found {len(chapters)} chapters")
+        
         if not chapters:
-            logger.warning("No chapters found in the document.")
-            return # Exit if no chapters
+            logger.warning("No chapters detected or text extracted. Cannot generate audio.")
+            return
 
-        # --- Dry Run Option ---
         if args.dry_run:
-            logger.info("--- Dry Run Mode ---")
-            logger.info("Detected chapters:")
+            logger.info("--- Dry Run Mode --- ")
+            logger.info(f"Detected {len(chapters)} chapters:")
             for i, chapter in enumerate(chapters):
-                logger.info(f"  Chapter {i+1}: {chapter.get('title', 'Untitled Chapter')}")
-            logger.info("Dry run complete. No audio files generated.")
+                title = chapter.get('title', f'Chapter {i+1}')
+                content_preview = chapter.get('content', '')[:100].replace('\n', ' ') + "..."
+                logger.info(f"  {i+1}. {title} (Preview: {content_preview})")
+            
+            # If both dry-run and debug-synthesis are enabled, log debug info without synthesis
+            if args.debug_synthesis:
+                logger.info("Logging synthesis debug info (dry run)...")
+                # Instantiate generator just for logging
+                generator = AudioGenerator(
+                    output_dir=args.output_dir, 
+                    input_file=args.input_file, 
+                    voice=args.voice, 
+                    debug_log=True # Enable debug logging in the generator
+                )
+                generator.log_synthesis_debug_info(chapters)
+                logger.info(f"Synthesis debug info logged to: {generator.debug_log_file}")
+            else:
+                 logger.info("Dry run complete. No audio generated.")
             return # Exit after dry run
 
-        # --- Generate Audio ---
-        logger.info("Starting audiobook generation...")
-        # Pass output directory and voice to the generator
-        generator = AudioGenerator(input_file=str(input_path), output_dir=str(output_path), voice=args.voice)
+        # --- Normal Audio Generation --- 
+        logger.info(f"Starting audiobook generation for {len(chapters)} chapters...")
+        generator = AudioGenerator(
+            output_dir=args.output_dir, 
+            input_file=args.input_file, 
+            voice=args.voice, 
+            debug_log=args.debug_synthesis # Pass the debug flag
+        )
         
-        # Generate audiobook by chapters
         chapter_paths = generator.generate_audiobook_by_chapters(chapters)
         
         if chapter_paths:
-            logger.info(f"Successfully created {len(chapter_paths)} chapter audio files")
-            logger.info(f"Chapter files are available in: {generator.chapters_dir}")
-            
-            # The full audiobook is automatically created by the generator
-            full_path = generator.output_dir / f"{input_path.stem}_full.mp3"
-            if full_path.exists():
-                logger.info(f"Complete audiobook also created: {full_path}")
-            else:
-                 logger.warning("Combined full audiobook file was not created.") # Warn if combine failed
+            logger.info(f"Successfully generated {len(chapter_paths)} chapter audio files in '{generator.chapters_dir}'.")
+            # The combine_chapters method is called within generate_audiobook_by_chapters if successful
+            combined_file_path = generator.output_dir / f"{input_path.stem}_full.mp3"
+            if combined_file_path.exists():
+                logger.info(f"Combined audiobook saved as '{combined_file_path}'.")
+            if args.debug_synthesis:
+                 logger.info(f"Synthesis debug info logged to: {generator.debug_log_file}")
         else:
-            logger.error("Audiobook generation failed or produced no chapter files")
-
-
+            logger.error("Audiobook generation failed.")
+            
+    except FileNotFoundError as e:
+        logger.error(f"Error: {e}")
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
     except Exception as e:
-        logger.error(f"Processing failed: {str(e)}")
-        raise # Re-raise exception for debugging
+        logger.exception(f"An unexpected error occurred: {e}") # Log full traceback for unexpected errors
 
 if __name__ == "__main__":
     main()

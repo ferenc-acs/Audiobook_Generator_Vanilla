@@ -2,6 +2,7 @@ import logging
 import subprocess
 import tempfile
 import os
+import json # Added for debug logging
 from openai import OpenAI
 from typing import Optional, List, Dict
 from pathlib import Path
@@ -11,38 +12,77 @@ from src.config import Config
 logger = logging.getLogger(__name__)
 
 class AudioGenerator:
-    def __init__(self, output_dir: str = "output", input_file: Optional[str] = None, voice: str = "ash"):
+    def __init__(self, output_dir: str = "output", input_file: Optional[str] = None, voice: str = "ash", debug_log: bool = False):
         Config.validate_key()
         self.client = OpenAI(api_key=Config.get_openai_key())
         self.output_dir = Path(output_dir) # Use the provided output directory
         self.output_dir.mkdir(parents=True, exist_ok=True) # Ensure it exists, including parents
         self.input_file = input_file
         self.voice = voice # Store the selected voice
+        self.debug_log = debug_log # Store the debug log flag
+        
+        # Determine debug log filename
+        if self.debug_log:
+            if self.input_file:
+                input_path = Path(self.input_file)
+                debug_filename = f"{input_path.stem}_synthesis_debug.txt"
+            else:
+                debug_filename = "synthesis_debug_log.txt" # Fallback if no input file
+            self.debug_log_file = self.output_dir / debug_filename
+        else:
+            self.debug_log_file = None
         
         # Create chapters subdirectory within the specified output directory
         self.chapters_dir = self.output_dir / "chapters"
         self.chapters_dir.mkdir(exist_ok=True)
 
+        # Clear the debug log file at the start if enabled
+        if self.debug_log_file and self.debug_log_file.exists():
+            self.debug_log_file.unlink()
+
     def _chunk_text(self, text: str, chunk_size: int = 4096) -> list[str]:
         return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
 
-    def _synthesize_chunk(self, text: str, index: int, chapter_dir: Optional[Path] = None) -> Optional[Path]:
+    def _synthesize_chunk(self, text: str, index: int, chapter_dir: Optional[Path] = None, chapter_index: Optional[int] = None, is_indicator: bool = False) -> Optional[Path]:
+        instructions = """
+        Voice Affect: Calm, Narrate in the style of a professional audiobook performer.
+        
+        Tone: Keep the tone engaging and reflective of the text's mood
+        
+        Pacing: Adopt a pace that is natural and conversational, but adaptable – slightly slower for emphasis or complex sentences, slightly faster for moments of excitement, always prioritizing intelligibility.
+        
+        Emotions: Calm and subtly underscore the emotional context detected in the text.
+        
+        Pronunciation: Accurate, crisp: Ensures clarity, especially with key details.
+        
+        Pauses: Brief pauses at commas and natural clause breaks, with slightly longer pauses at sentence and paragraph endings to aid comprehension and flow.
+        """
+        
+        # Log debug information if enabled
+        if self.debug_log:
+            debug_info = {
+                "chapter_index": chapter_index if chapter_index is not None else "N/A (Legacy/Indicator)",
+                "chunk_index": index,
+                "is_indicator": is_indicator,
+                "voice": self.voice,
+                "model": "gpt-4o-mini-tts",
+                "input_text_length": len(text),
+                "input_text": text,
+                "instructions": instructions
+            }
+            try:
+                with open(self.debug_log_file, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(debug_info, indent=2) + "\n---\n")
+            except Exception as log_e:
+                logger.error(f"Failed to write to debug log file {self.debug_log_file}: {log_e}")
+
+        # --- Actual Synthesis --- 
         try:
             response = self.client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=self.voice, # Use the stored voice
                 input=text,
-                instructions="""Narrate in the style of a professional audiobook performer.
-                Maintain excellent clarity and articulation throughout.
-                Adopt a pace that is natural and conversational, but adaptable – slightly slower for emphasis or complex sentences,
-                slightly faster for moments of excitement, always prioritizing intelligibility.
-                Use moderate pitch and volume variation to keep the tone engaging and reflective of the
-                text's mood (e.g., serious, lighthearted, informative).
-                Intonation should naturally follow sentence structure (rising for questions, falling for statements) and
-                subtly underscore the emotional context detected in the text.
-                Place brief pauses at commas and natural clause breaks, with slightly longer pauses at sentence and paragraph endings to
-                aid comprehension and flow.
-                Ensure pronunciation is consistently accurate and crisp."""
+                instructions=instructions
             )
             # Use chapter directory if provided, otherwise use the specified output directory
             target_dir = chapter_dir if chapter_dir else self.output_dir
@@ -92,14 +132,16 @@ class AudioGenerator:
         with tqdm(total=len(chunks)+1, desc=f"Synthesizing chapter {chapter_index}: {chapter_title}") as pbar:
             # Process the main chapter content
             for i, chunk in enumerate(chunks):
-                chunk_path = self._synthesize_chunk(chunk, i, chapter_dir)
+                # Pass chapter_index for debug logging
+                chunk_path = self._synthesize_chunk(chunk, i, chapter_dir, chapter_index=chapter_index)
                 if not chunk_path:
                     return None
                 chunk_paths.append(chunk_path)
                 pbar.update(1)
             
             # Process the chapter indicator
-            indicator_path = self._synthesize_chunk(chapter_indicator, len(chunks), chapter_dir)
+            # Pass chapter_index and is_indicator=True for debug logging
+            indicator_path = self._synthesize_chunk(chapter_indicator, len(chunks), chapter_dir, chapter_index=chapter_index, is_indicator=True)
             if indicator_path:
                 chunk_paths.append(indicator_path)
                 pbar.update(1)
@@ -143,7 +185,8 @@ class AudioGenerator:
 
         with tqdm(total=len(chunks), desc="Synthesizing audio") as pbar:
             for i, chunk in enumerate(chunks):
-                chunk_path = self._synthesize_chunk(chunk, i)
+                # Pass chapter_index=None for legacy method
+                chunk_path = self._synthesize_chunk(chunk, i, chapter_index=None)
                 if not chunk_path:
                     return None
                 chunk_paths.append(chunk_path)
@@ -232,3 +275,69 @@ class AudioGenerator:
             return None
         finally:
             os.unlink(list_file.name)
+
+    # New method to log debug info without synthesis (for --dry-run --debug-synthesis)
+    def log_synthesis_debug_info(self, chapters: List[Dict[str, str]]):
+        """Logs synthesis parameters for each chunk without calling the API."""
+        if not self.debug_log:
+            logger.warning("Debug logging is not enabled. Cannot log synthesis info.")
+            return
+
+        logger.info(f"Logging synthesis debug info to: {self.debug_log_file}")
+        total_chunks_to_log = 0
+        for i, chapter in enumerate(chapters):
+            chapter_content = chapter.get("content", "")
+            if chapter_content.strip():
+                chunks = self._chunk_text(chapter_content)
+                total_chunks_to_log += len(chunks) + 1 # +1 for indicator
+        
+        with tqdm(total=total_chunks_to_log, desc="Logging debug info") as pbar:
+            for i, chapter in enumerate(chapters):
+                chapter_index = i + 1
+                chapter_title = chapter.get("title", f"Chapter {chapter_index}")
+                chapter_content = chapter.get("content", "")
+
+                if not chapter_content.strip():
+                    logger.debug(f"Skipping debug log for empty Chapter {chapter_title}")
+                    continue
+
+                # Log chunks for the chapter content
+                chunks = self._chunk_text(chapter_content)
+                for j, chunk in enumerate(chunks):
+                    self._log_chunk_debug_info(chunk, j, chapter_index=chapter_index, is_indicator=False)
+                    pbar.update(1)
+
+                # Log chunk for the chapter indicator
+                chapter_indicator = self._create_chapter_indicator(chapter_title)
+                self._log_chunk_debug_info(chapter_indicator, len(chunks), chapter_index=chapter_index, is_indicator=True)
+                pbar.update(1)
+
+    def _log_chunk_debug_info(self, text: str, index: int, chapter_index: int, is_indicator: bool):
+        """Helper method to format and write debug info for a single chunk."""
+        instructions = """Narrate in the style of a professional audiobook performer.
+        Maintain excellent clarity and articulation throughout.
+        Adopt a pace that is natural and conversational, but adaptable – slightly slower for emphasis or complex sentences,
+        slightly faster for moments of excitement, always prioritizing intelligibility.
+        Use moderate pitch and volume variation to keep the tone engaging and reflective of the
+        text's mood (e.g., serious, lighthearted, informative).
+        Intonation should naturally follow sentence structure (rising for questions, falling for statements) and
+        subtly underscore the emotional context detected in the text.
+        Place brief pauses at commas and natural clause breaks, with slightly longer pauses at sentence and paragraph endings to
+        aid comprehension and flow.
+        Ensure pronunciation is consistently accurate and crisp."""
+        
+        debug_info = {
+            "chapter_index": chapter_index,
+            "chunk_index": index,
+            "is_indicator": is_indicator,
+            "voice": self.voice,
+            "model": "gpt-4o-mini-tts",
+            "input_text_length": len(text),
+            "input_text": text,
+            "instructions": instructions
+        }
+        try:
+            with open(self.debug_log_file, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(debug_info, indent=2) + "\n---\n")
+        except Exception as log_e:
+            logger.error(f"Failed to write to debug log file {self.debug_log_file}: {log_e}")

@@ -66,6 +66,7 @@ poetry run python scripts/create_test_docx.py
 - `-o`, `--output-dir`: Directory to save generated audio files (default: `output`).
 - `--voice`: TTS voice model (options: alloy, echo, fable, onyx, nova, shimmer; default: `nova`).
 - `--dry-run`: Detect chapters and list them without generating audio.
+- `--debug-synthesis`: Log synthesis input text and instructions to `<output_dir>/synthesis_debug_log.txt`. If used with `--dry-run`, only logs info without making API calls.
 - `-v`, `--verbose`: Enable detailed debug logging.
 - `-q`, `--quiet`: Suppress informational messages, show only warnings/errors.
 
