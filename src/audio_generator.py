@@ -41,7 +41,18 @@ class AudioGenerator:
             self.debug_log_file.unlink()
 
     def _chunk_text(self, text: str, chunk_size: int = 4096) -> list[str]:
-        return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+        # Use the sentence segmentation function from text_processor
+        from src.text_processor import segment_text_by_sentences
+        
+        # First try to segment by sentences to maintain natural speech flow
+        chunks = segment_text_by_sentences(text, chunk_size)
+        
+        # Fallback to simple chunking if sentence segmentation failed or returned nothing
+        if not chunks:
+            logger.warning("Sentence segmentation returned no chunks, falling back to simple chunking")
+            chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+            
+        return chunks
 
     def _synthesize_chunk(self, text: str, index: int, chapter_dir: Optional[Path] = None, chapter_index: Optional[int] = None, is_indicator: bool = False) -> Optional[Path]:
         instructions = """

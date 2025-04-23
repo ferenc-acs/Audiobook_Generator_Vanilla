@@ -7,6 +7,91 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
+def segment_text_by_sentences(text: str, chunk_size: int = 4096) -> List[str]:
+    """Segment text at sentence boundaries up to the specified chunk size.
+    
+    Args:
+        text: The input text to segment
+        chunk_size: Maximum size of each chunk in characters
+        
+    Returns:
+        A list of text chunks that respect sentence boundaries
+    """
+    try:
+        # Try to use spaCy for better sentence segmentation if available
+        import spacy
+        # Load small model optimized for sentence segmentation
+        logger.debug("Using spaCy for sentence segmentation")
+        try:
+            nlp = spacy.load("en_core_web_sm", disable=["ner", "tagger", "lemmatizer", "attribute_ruler"])
+            # Set max length to handle the document
+            nlp.max_length = len(text) + 100  # Add buffer
+            
+            # Process the text
+            doc = nlp(text)
+            
+            chunks = []
+            current_chunk = ""
+            
+            for sent in doc.sents:
+                sentence_text = sent.text_with_ws if hasattr(sent, 'text_with_ws') else sent.text
+                
+                # If adding this sentence exceeds chunk_size, start a new chunk
+                if len(current_chunk) + len(sentence_text) > chunk_size and current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = sentence_text
+                else:
+                    current_chunk += sentence_text
+            
+            # Add the last chunk if it has content
+            if current_chunk:
+                chunks.append(current_chunk)
+                
+            return chunks
+        except Exception as e:
+            logger.warning(f"spaCy processing error: {str(e)}. Falling back to regex segmentation.")
+            # Fall through to regex approach
+    except ImportError:
+        logger.debug("spaCy not available, using regex for sentence segmentation")
+        # Continue with regex approach
+    
+    # Fallback: Use regex to find sentence boundaries
+    # This is less accurate but doesn't require additional dependencies
+    sentence_pattern = re.compile(r'([.!?])\s+(?=[A-Z])')
+    
+    chunks = []
+    current_pos = 0
+    current_chunk = ""
+    
+    # Find all sentence boundaries
+    for match in sentence_pattern.finditer(text):
+        end_pos = match.end()
+        sentence = text[current_pos:end_pos]
+        
+        # If adding this sentence would exceed the chunk size, start a new chunk
+        if len(current_chunk) + len(sentence) > chunk_size and current_chunk:
+            chunks.append(current_chunk)
+            current_chunk = sentence
+        else:
+            current_chunk += sentence
+            
+        current_pos = end_pos
+    
+    # Add any remaining text
+    if current_pos < len(text):
+        remaining = text[current_pos:]
+        if len(current_chunk) + len(remaining) > chunk_size and current_chunk:
+            chunks.append(current_chunk)
+            chunks.append(remaining)
+        else:
+            current_chunk += remaining
+    
+    # Add the last chunk if not already added
+    if current_chunk and (not chunks or chunks[-1] != current_chunk):
+        chunks.append(current_chunk)
+    
+    return chunks
+
 def extract_text_from_docx(file_path: str) -> str:
     try:
         doc = Document(file_path)
