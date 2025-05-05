@@ -111,4 +111,9 @@ For more information about secure credential storage, see [README_CREDENTIALS.md
 
 ## License
 
-MIT
+GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
+
+### Why AGPL?
+This license ensures that any modifications made to the software must be shared with users, even when used over a network. This protects against unauthorized commercialization of the project without contributing back to the open source community.
+
+For compliance details regarding SaaS usage, see [FAQ](FAQ.md).

@@ -3,7 +3,14 @@ name = "audiobook-generator"
 packages = [{include = "src", from = "."}]
 version = "0.1.0"
 description = "Text to audiobook converter with secure API handling"
-authors = ["User <user@example.com>"]
+license = "AGPL-3.0-or-later"
+authors = ["Ferenc Acs <pass.schist2954@eagereverest.com>"],
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)"
+]
+classifiers = [
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)"
+]]
 
 [tool.poetry.dependencies]
 python = "^3.11"
