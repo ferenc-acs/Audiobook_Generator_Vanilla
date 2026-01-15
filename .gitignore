@@ -28,6 +28,7 @@ htmlcov/
 .vscode/
 *.swp
 *.swo
+CLAUDE.md
 
 # Generated files
 test_output.mp3

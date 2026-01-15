@@ -29,6 +29,21 @@ from src.config import Config
 
 logger = logging.getLogger(__name__)
 
+# TTS synthesis instructions - used consistently across all synthesis and debug logging
+TTS_INSTRUCTIONS = """
+Voice Affect: Calm, Narrate in the style of a professional audiobook performer.
+
+Tone: Keep the tone engaging and reflective of the text's mood
+
+Pacing: Adopt a pace that is natural and conversational, but adaptable – slightly slower for emphasis or complex sentences, slightly faster for moments of excitement, always prioritizing intelligibility.
+
+Emotions: Calm and subtly underscore the emotional context detected in the text.
+
+Pronunciation: Accurate, crisp: Ensures clarity, especially with key details.
+
+Pauses: Brief pauses at commas and natural clause breaks, with slightly longer pauses at sentence and paragraph endings to aid comprehension and flow.
+"""
+
 class AudioGenerator:
     def __init__(self, output_dir: str = "output", input_file: Optional[str] = None, voice: str = "ash", debug_log: bool = False):
         Config.validate_key()
@@ -73,20 +88,6 @@ class AudioGenerator:
         return chunks
 
     def _synthesize_chunk(self, text: str, index: int, chapter_dir: Optional[Path] = None, chapter_index: Optional[int] = None, is_indicator: bool = False) -> Optional[Path]:
-        instructions = """
-        Voice Affect: Calm, Narrate in the style of a professional audiobook performer.
-        
-        Tone: Keep the tone engaging and reflective of the text's mood
-        
-        Pacing: Adopt a pace that is natural and conversational, but adaptable – slightly slower for emphasis or complex sentences, slightly faster for moments of excitement, always prioritizing intelligibility.
-        
-        Emotions: Calm and subtly underscore the emotional context detected in the text.
-        
-        Pronunciation: Accurate, crisp: Ensures clarity, especially with key details.
-        
-        Pauses: Brief pauses at commas and natural clause breaks, with slightly longer pauses at sentence and paragraph endings to aid comprehension and flow.
-        """
-        
         # Log debug information if enabled
         if self.debug_log:
             debug_info = {
@@ -97,7 +98,7 @@ class AudioGenerator:
                 "model": "gpt-4o-mini-tts",
                 "input_text_length": len(text),
                 "input_text": text,
-                "instructions": instructions
+                "instructions": TTS_INSTRUCTIONS
             }
             try:
                 with open(self.debug_log_file, 'a', encoding='utf-8') as f:
@@ -105,13 +106,13 @@ class AudioGenerator:
             except Exception as log_e:
                 logger.error(f"Failed to write to debug log file {self.debug_log_file}: {log_e}")
 
-        # --- Actual Synthesis --- 
+        # --- Actual Synthesis ---
         try:
             response = self.client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=self.voice, # Use the stored voice
                 input=text,
-                instructions=instructions
+                instructions=TTS_INSTRUCTIONS
             )
             # Use chapter directory if provided, otherwise use the specified output directory
             target_dir = chapter_dir if chapter_dir else self.output_dir
@@ -343,18 +344,6 @@ class AudioGenerator:
 
     def _log_chunk_debug_info(self, text: str, index: int, chapter_index: int, is_indicator: bool):
         """Helper method to format and write debug info for a single chunk."""
-        instructions = """Narrate in the style of a professional audiobook performer.
-        Maintain excellent clarity and articulation throughout.
-        Adopt a pace that is natural and conversational, but adaptable – slightly slower for emphasis or complex sentences,
-        slightly faster for moments of excitement, always prioritizing intelligibility.
-        Use moderate pitch and volume variation to keep the tone engaging and reflective of the
-        text's mood (e.g., serious, lighthearted, informative).
-        Intonation should naturally follow sentence structure (rising for questions, falling for statements) and
-        subtly underscore the emotional context detected in the text.
-        Place brief pauses at commas and natural clause breaks, with slightly longer pauses at sentence and paragraph endings to
-        aid comprehension and flow.
-        Ensure pronunciation is consistently accurate and crisp."""
-        
         debug_info = {
             "chapter_index": chapter_index,
             "chunk_index": index,
@@ -363,7 +352,7 @@ class AudioGenerator:
             "model": "gpt-4o-mini-tts",
             "input_text_length": len(text),
             "input_text": text,
-            "instructions": instructions
+            "instructions": TTS_INSTRUCTIONS
         }
         try:
             with open(self.debug_log_file, 'a', encoding='utf-8') as f:
