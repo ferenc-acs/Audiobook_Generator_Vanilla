@@ -124,4 +124,4 @@ if __name__ == "__main__":
     
     print(f"\nTest EPUB file created at: {epub_path}")
     print("You can now use this file to test the audiobook generator:")
-    print(f"poetry run python -m src.main {epub_path}")
+    print(f"uv run python -m src.main {epub_path}")

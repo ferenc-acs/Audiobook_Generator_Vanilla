@@ -12,10 +12,16 @@ This project now supports storing your OpenAI API key in your system's secure cr
 
 ## Setting Up Secure Credentials
 
+**IMPORTANT**: This project uses uv for dependency management. All scripts must be run through uv's virtual environment. Do NOT run scripts directly with `python` or `py` commands, as this will result in `ModuleNotFoundError` for dependencies like `keyring`.
+
 A setup script is provided to help you migrate your API key to the secure credential store:
 
 ```bash
-python scripts/setup_credentials.py
+# First, ensure dependencies are installed
+uv sync
+
+# Then run the setup script through uv
+uv run python scripts/setup_credentials.py
 ```
 
 This script will:
@@ -48,9 +54,10 @@ Depending on your distribution, your key will be stored in the Secret Service AP
 
 If you encounter issues with the credential store:
 
-1. Run the setup script again to update your stored key
+1. Run the setup script again to update your stored key: `uv run python scripts/setup_credentials.py`
 2. You can always fall back to using the `.env` file by adding your API key there
 3. Check the application logs for any specific error messages
+4. Verify credentials are set up correctly: `uv run python scripts/check_credentials.py`
 
 ## Security Best Practices
 

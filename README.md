@@ -26,38 +26,38 @@ A Python application that converts text documents (DOCX, EPUB, Markdown) into au
    cd audiobook-generator
    ```
 
-2. Install dependencies using Poetry:
+2. Install dependencies using uv:
    ```bash
-   poetry install
+   uv sync
    ```
 
 3. Set up your OpenAI API key:
    ```bash
-   poetry run python scripts/setup_credentials.py
+   uv run python scripts/setup_credentials.py
    ```
 
 4. Install FFmpeg (if not already installed):
    ```bash
-   poetry run python scripts/install_ffmpeg.py
+   uv run python scripts/install_ffmpeg.py
    ```
 
 ## Usage
 
 ```bash
 # Convert a DOCX file with default settings
-poetry run python -m src.main input/your-document.docx
+uv run python -m src.main input/your-document.docx
 
 # Convert an EPUB file, specify output directory and voice
-poetry run python -m src.main input/your-book.epub -o custom_output --voice shimmer
+uv run python -m src.main input/your-book.epub -o custom_output --voice shimmer
 
 # Convert a Markdown file with verbose logging
-poetry run python -m src.main input/your-text.md -v
+uv run python -m src.main input/your-text.md -v
 
 # Perform a dry run to see detected chapters (no audio generated)
-poetry run python -m src.main input/your-document.docx --dry-run
+uv run python -m src.main input/your-document.docx --dry-run
 
 # Create test documents with chapter structure
-poetry run python scripts/create_test_docx.py
+uv run python scripts/create_test_docx.py
 ```
 
 ### Command-Line Options
@@ -89,8 +89,8 @@ The generated audiobook files will be saved in:
 │   └── setup_credentials.py # Set up secure API key storage
 ├── input/                # Input documents (not included in repo)
 ├── output/               # Generated audiobooks (not included in repo)
-├── pyproject.toml       # Poetry configuration
-└── poetry.lock          # Dependency lock file
+├── pyproject.toml       # Project configuration
+└── uv.lock              # Dependency lock file
 ```
 
 ## Chapter Detection
