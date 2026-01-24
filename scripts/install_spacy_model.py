@@ -19,17 +19,26 @@
 #!/usr/bin/env python
 import subprocess
 import sys
+import shutil
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def is_uv_environment():
+    """Check if we're running in a uv-managed environment."""
+    return shutil.which("uv") is not None
+
+
 def install_spacy_model():
     """
     Install the spaCy language model required for sentence segmentation.
-    
+
     This installs the small English model (en_core_web_sm) which is efficient
     for sentence boundary detection.
+
+    Supports both uv and pip package managers.
     """
     try:
         # Check if spaCy is installed
@@ -39,9 +48,12 @@ def install_spacy_model():
             logger.info(f"spaCy is installed (version {spacy.__version__})")
         except ImportError:
             logger.warning("spaCy is not installed. Installing spaCy...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "spacy"])
+            if is_uv_environment():
+                subprocess.check_call(["uv", "pip", "install", "spacy"])
+            else:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "spacy"])
             logger.info("spaCy has been installed.")
-        
+
         # Check if the language model is installed
         logger.info("Checking for language model...")
         try:
@@ -50,8 +62,20 @@ def install_spacy_model():
             logger.info("Language model 'en_core_web_sm' is already installed.")
         except OSError:
             # Model not found, need to download it
-            logger.info("Language model not found. Downloading 'en_core_web_sm'...")
-            subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm"])
+            # Use uv pip install if available (uv environments don't have pip by default)
+            # The spaCy model can be installed directly as a package via wheel URL
+            logger.info("Language model not found. Installing 'en_core_web_sm'...")
+            if is_uv_environment():
+                logger.info("Using uv to install the model...")
+                # Get spaCy version to match model version (e.g., spaCy 3.8.x -> model 3.8.0)
+                import spacy
+                major_minor = ".".join(spacy.__version__.split(".")[:2])
+                model_version = f"{major_minor}.0"
+                wheel_url = f"https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-{model_version}/en_core_web_sm-{model_version}-py3-none-any.whl"
+                logger.info(f"Downloading model version {model_version} from GitHub releases...")
+                subprocess.check_call(["uv", "pip", "install", f"en_core_web_sm @ {wheel_url}"])
+            else:
+                subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm"])
             logger.info("Language model 'en_core_web_sm' has been installed.")
             
         # Verify installation was successful
@@ -78,7 +102,9 @@ if __name__ == "__main__":
     else:
         logger.error("❌ spaCy language model installation failed.")
         print("\nThere was an error installing the spaCy language model.")
-        print("You can try installing it manually with these commands:")
-        print("  pip install spacy")
-        print("  python -m spacy download en_core_web_sm")
+        print("You can try installing it manually with one of these methods:")
+        print("\n  Using uv (recommended for this project):")
+        print('    uv pip install "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"')
+        print("\n  Using pip:")
+        print("    python -m spacy download en_core_web_sm")
         sys.exit(1)
