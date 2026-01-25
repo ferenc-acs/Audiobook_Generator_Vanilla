@@ -108,16 +108,18 @@ class AudioGenerator:
 
         # --- Actual Synthesis ---
         try:
-            response = self.client.audio.speech.create(
-                model="gpt-4o-mini-tts",
-                voice=self.voice, # Use the stored voice
-                input=text,
-                instructions=TTS_INSTRUCTIONS
-            )
             # Use chapter directory if provided, otherwise use the specified output directory
             target_dir = chapter_dir if chapter_dir else self.output_dir
             output_path = target_dir / f"chunk_{index}.mp3"
-            response.stream_to_file(str(output_path))
+
+            # Use streaming response to write audio directly to disk (memory-efficient)
+            with self.client.audio.speech.with_streaming_response.create(
+                model="gpt-4o-mini-tts",
+                voice=self.voice,
+                input=text,
+                instructions=TTS_INSTRUCTIONS
+            ) as response:
+                response.stream_to_file(str(output_path))
             return output_path
         except Exception as e:
             # Mask API key in error messages
